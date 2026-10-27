@@ -29,9 +29,14 @@ NestJS 12 ships as ES modules only, so `npm test` runs Jest with `--experimental
 Planned:
 
 - Consume the Kafka topics of both producers (`producer-a.*` and `producer-b.*`).
-- Own the lab database. Producers never write to it directly.
 - Serve the producers' requests through the platform gateway.
-- One Redis for cache and a separate Redis for BullMQ queues.
+- Own its database. Producers never write to it directly. The database evolves in three steps:
+  1. Start with an embedded SQLite database inside the process, the pattern most services use today.
+  2. Migrate to a separate PostgreSQL, moving the existing data with a reproducible migration script.
+  3. Only after that migration, deploy to the cluster, with PostgreSQL running as its own StatefulSet.
+
+  The migration comes before the deployment because the SQLite file lives in a volume that only one pod can mount. While the service stays on SQLite, it cannot run two replicas or deploy without downtime.
+
 - Graceful shutdown: stop consuming, drain in-flight work, then exit.
 
 ## Run locally
