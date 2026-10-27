@@ -1,6 +1,6 @@
 # lab-processor
 
-The shared processor of the lab: a NestJS service that will consume the events published by both producers and own the lab's persistent data.
+The shared processor of the lab: a NestJS service that will consume the events published by both producers and own its database.
 
 ## Role in the lab
 
