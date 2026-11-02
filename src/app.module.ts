@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { envValidationSchema } from './config/env-validation.schema';
+import { DatabaseModule } from './database/database.module';
+import { EventsModule } from './events/events.module';
 import { HealthModule } from './health/health.module';
 
 @Module({
@@ -10,6 +12,8 @@ import { HealthModule } from './health/health.module';
       ignoreEnvFile: true,
       validationSchema: envValidationSchema,
     }),
+    DatabaseModule,
+    EventsModule,
     HealthModule,
   ],
 })

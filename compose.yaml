@@ -1,0 +1,21 @@
+# Today's starting point: SQLite embedded in the process, stored in a volume.
+services:
+  migrate:
+    build: .
+    image: lab-processor:local
+    command: ['node', 'dist/migrate.js']
+    volumes:
+      - processor-data:/app/data
+
+  processor:
+    image: lab-processor:local
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - '3000:3000'
+    volumes:
+      - processor-data:/app/data
+
+volumes:
+  processor-data:
