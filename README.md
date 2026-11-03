@@ -10,7 +10,8 @@ Runs in the `platform` namespace of the k3s cluster, next to Kafka. There is one
 
 Today:
 
-- `GET /health` returns `200 {"status":"ok"}`.
+- `GET /health` returns `200 {"status":"ok"}` while the process is up, without touching the database: for a liveness probe.
+- `GET /health/ready` returns `200` only if the database answers `SELECT 1` within 1 s, and `503` otherwise: for a readiness probe.
 - An HTTP API for events (see [API](#api)): producers send events with `POST /events`, and anyone reads them with `GET /events`.
 - Its own PostgreSQL, separate from the process, accessed through TypeORM. The schema lives in versioned SQL migrations (`migrations/postgres/`), applied by a separate command before the service starts.
 - A reproducible script that copied the events of the previous SQLite version into PostgreSQL (see [Data migration from SQLite](#data-migration-from-sqlite)).
@@ -68,11 +69,13 @@ docker compose up --build
 
 ## API
 
-| Method and path   | What it does                                                                                                                                                |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /events`    | Receives an event from a producer and answers `202`. The producer sets the event `id`: sending the same `id` again stores nothing new, so retries are safe. |
-| `GET /events`     | The latest events first. Optional `source`, `limit` (1 to 100, default 20) and `offset`.                                                                    |
-| `GET /events/:id` | One event, or `404`.                                                                                                                                        |
+| Method and path     | What it does                                                                                                                                                |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /events`      | Receives an event from a producer and answers `202`. The producer sets the event `id`: sending the same `id` again stores nothing new, so retries are safe. |
+| `GET /events`       | The latest events first. Optional `source`, `limit` (1 to 100, default 20) and `offset`.                                                                    |
+| `GET /events/:id`   | One event, or `404`.                                                                                                                                        |
+| `GET /health`       | `200` while the process is up. Never checks the database, so a database outage does not restart the service.                                                |
+| `GET /health/ready` | `200` if the database answers within 1 s, `503` otherwise. A pod that is not ready gets no traffic but is not restarted.                                    |
 
 ```bash
 curl -X POST localhost:3000/events -H 'content-type: application/json' -d '{
