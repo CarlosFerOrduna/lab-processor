@@ -1,0 +1,19 @@
+name: image
+
+on:
+  push:
+    branches: [development]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+# Two pushes in a row publish one after the other, never at the same time.
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  image:
+    uses: CarlosFerOrduna/lab-ci-workflows/.github/workflows/container-image.yml@v1

@@ -142,7 +142,16 @@ The script, `better-sqlite3` and the `processor-data` volume stay until the proc
 - Work happens on the personal branch and is merged locally into `development`, then `development` into `stage`. There are no pull requests.
 - Only the production owner updates `main`.
 
-## Pipeline (planned)
+## Pipeline
+
+Today, `.github/workflows/image.yml` publishes the image on every push to `development`, and on demand with **Run workflow** (`workflow_dispatch`). It calls the reusable [`container-image.yml`](https://github.com/CarlosFerOrduna/lab-ci-workflows) of lab-ci-workflows, so the three services publish the same way:
+
+- The tag is the tree hash of the commit (`git rev-parse HEAD^{tree}`): `ghcr.io/carlosferorduna/lab-processor:<tree hash>`.
+- If that tag already exists, nothing is built: the same content is never published twice.
+- It authenticates with the workflow's own `GITHUB_TOKEN` (`packages: write`), never with a personal token.
+- The `org.opencontainers.image.source` label links the package to this repository.
+
+Planned:
 
 1. On push to `development`: run the npm scripts (`lint`, `test`), then build an image tagged with the tree hash (`git rev-parse HEAD^{tree}`). The image is deployed to dev only if the tests pass.
 2. On push to `stage` or `main`: reuse the image whose tag matches the tree hash. The job fails if that image does not exist and never rebuilds it.
