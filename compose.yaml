@@ -1,21 +1,59 @@
-# Today's starting point: SQLite embedded in the process, stored in a volume.
+# The processor on its own PostgreSQL, separate from the process.
+# POSTGRES_PASSWORD comes from a local .env file, which is never committed.
+x-database: &database
+  DATABASE_HOST: postgres
+  DATABASE_NAME: processor
+  DATABASE_USER: processor
+  DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+
 services:
+  postgres:
+    image: postgres:18.6-alpine@sha256:10a5c69a83035ab5239f5620d708520e8b28f5aa1f2b20143e6024532edadfb5
+    environment:
+      POSTGRES_DB: processor
+      POSTGRES_USER: processor
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U processor -d processor']
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    volumes:
+      - postgres-data:/var/lib/postgresql
+
   migrate:
     build: .
     image: lab-processor:local
     command: ['node', 'dist/migrate.js']
-    volumes:
-      - processor-data:/app/data
+    environment: *database
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   processor:
     image: lab-processor:local
+    environment: *database
+    ports:
+      - '3000:3000'
     depends_on:
       migrate:
         condition: service_completed_successfully
-    ports:
-      - '3000:3000'
+
+  # One-off copy of the events from the old SQLite volume: docker compose run --rm migrate-data
+  migrate-data:
+    image: lab-processor:local
+    profiles: ['data-migration']
+    command: ['node', 'dist/scripts/migrate-sqlite-to-postgres.js']
+    environment:
+      <<: *database
+      SQLITE_DATABASE_PATH: /sqlite/processor.sqlite
     volumes:
-      - processor-data:/app/data
+      - processor-data:/sqlite:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
+  postgres-data:
+  # The SQLite data of the previous version, kept read-only until the migration is verified.
   processor-data:

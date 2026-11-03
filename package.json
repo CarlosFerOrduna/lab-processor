@@ -11,6 +11,7 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "lint": "eslint",
     "migrate": "node dist/migrate.js",
+    "migrate:data": "node dist/scripts/migrate-sqlite-to-postgres.js",
     "start": "node dist/main",
     "start:dev": "nest start --watch",
     "test": "node --experimental-vm-modules --disable-warning=ExperimentalWarning node_modules/jest/bin/jest.js"
@@ -36,6 +37,7 @@
     "@nestjs/typeorm": "^12.0.2",
     "better-sqlite3": "^12.11.1",
     "joi": "^18.3.0",
+    "pg": "^8.23.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "typeorm": "^1.1.2"
@@ -49,6 +51,7 @@
     "@types/express": "^5.0.6",
     "@types/jest": "^30.0.0",
     "@types/node": "^26.6.5",
+    "@types/pg": "^8.23.1",
     "eslint": "^10.13.0",
     "eslint-plugin-unicorn": "^79.0.0",
     "jest": "^30.5.2",
