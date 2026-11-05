@@ -39,21 +39,5 @@ services:
       migrate:
         condition: service_completed_successfully
 
-  # One-off copy of the events from the old SQLite volume: docker compose run --rm migrate-data
-  migrate-data:
-    image: lab-processor:local
-    profiles: ['data-migration']
-    command: ['node', 'dist/scripts/migrate-sqlite-to-postgres.js']
-    environment:
-      <<: *database
-      SQLITE_DATABASE_PATH: /sqlite/processor.sqlite
-    volumes:
-      - processor-data:/sqlite:ro
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-
 volumes:
   postgres-data:
-  # The SQLite data of the previous version, kept read-only until the migration is verified.
-  processor-data:

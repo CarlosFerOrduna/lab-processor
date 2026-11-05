@@ -14,22 +14,19 @@ Today:
 - `GET /health/ready` returns `200` only if the database answers `SELECT 1` within 1 s, and `503` otherwise: for a readiness probe.
 - An HTTP API for events (see [API](#api)): producers send events with `POST /events`, and anyone reads them with `GET /events`.
 - Its own PostgreSQL, separate from the process, accessed through TypeORM. The schema lives in versioned SQL migrations (`migrations/postgres/`), applied by a separate command before the service starts.
-- A reproducible script that copied the events of the previous SQLite version into PostgreSQL (see [Data migration from SQLite](#data-migration-from-sqlite)).
 - Environment configuration validated at startup with Joi.
 - Multi-stage `Dockerfile` that runs as the unprivileged `node` user, on a base image pinned by digest.
 - A `compose.yaml` with PostgreSQL, the migrations as a one-shot service, and the service itself.
 - npm scripts that CI will call:
 
-| Script                 | What it does                                              |
-| ---------------------- | --------------------------------------------------------- |
-| `npm run lint`         | ESLint, without `--fix`, so violations fail the build.    |
-| `npm run migrate`      | Applies the pending migrations (`dist/migrate.js`).       |
-| `npm run migrate:data` | Copies the events of the old SQLite file into PostgreSQL. |
-| `npm test`             | Jest unit tests (`*.spec.ts` next to the code they test). |
-| `npm run build`        | Compiles to `dist/`.                                      |
-| `npm start`            | Runs `dist/main`.                                         |
-| `npm run start:dev`    | Watch mode for local work.                                |
-| `npm run format`       | Prettier over `src/`.                                     |
+| Script              | What it does                                           |
+| ------------------- | ------------------------------------------------------ |
+| `npm run lint`      | ESLint, without `--fix`, so violations fail the build. |
+| `npm run migrate`   | Applies the pending migrations (`dist/migrate.js`).    |
+| `npm run build`     | Compiles to `dist/`.                                   |
+| `npm start`         | Runs `dist/main`.                                      |
+| `npm run start:dev` | Watch mode for local work.                             |
+| `npm run format`    | Prettier over `src/`.                                  |
 
 NestJS 12 ships as ES modules only, so `npm test` runs Jest with `--experimental-vm-modules`.
 
@@ -39,8 +36,8 @@ Planned:
 - Serve the producers' requests through the platform gateway.
 - Own its database. Producers never write to it directly. The database evolves in three steps:
   1. Start with an embedded SQLite database inside the process, the pattern most services use today. (Done.)
-  2. Migrate to a separate PostgreSQL, moving the existing data with a reproducible migration script. **(Today.)**
-  3. Only after that migration, deploy to the cluster, with PostgreSQL running as its own StatefulSet.
+  2. Migrate to a separate PostgreSQL, moving the existing data with a reproducible migration script. (Done.)
+  3. Only after that migration, deploy to the cluster, with PostgreSQL running as its own StatefulSet. **(Today:** two replicas in the `platform` namespace, deployed from [lab-gitops](https://github.com/CarlosFerOrduna/lab-gitops) `platform/processor/base`.**)**
 
   The migration comes before the deployment because the SQLite file lives in a volume that only one pod can mount. While the service stays on SQLite, it cannot run two replicas or deploy without downtime.
 
@@ -64,8 +61,6 @@ docker compose up --build
 ```
 
 `postgres` starts first; `migrate` waits until it is healthy, applies the migrations and exits; `processor` starts only after that succeeds. The data lives in the `postgres-data` volume (`docker compose down -v` deletes it). The service itself never reads `.env`: compose uses it to fill in `compose.yaml`.
-
-`better-sqlite3` is a native module, needed only by the data migration script: npm runs its install script only because `package.json` approves that exact version in `allowScripts`. It goes away with the script.
 
 ## API
 
@@ -114,23 +109,9 @@ Schema changes are versioned SQL files in `migrations/postgres/`, applied in fil
 - The service never changes the schema: TypeORM runs with `synchronize: false`.
 - Migrations run before the service, as a separate command. The runner holds a PostgreSQL advisory lock while it works, so several replicas starting at once apply each migration exactly once.
 
-## Data migration from SQLite
+## History
 
-The first version kept its events in an embedded SQLite file. `npm run migrate:data` (`src/scripts/migrate-sqlite-to-postgres.ts`) copies them into PostgreSQL:
-
-- Reads every row of the SQLite `event` table, read-only.
-- Converts the types: JSON text to `jsonb`, and SQLite's zone-less UTC timestamps to `timestamptz`. A corrupt payload or timestamp stops the run instead of being copied.
-- Inserts everything in one transaction with `ON CONFLICT (id) DO NOTHING`, so running it again inserts nothing new.
-- Checks that every SQLite `id` is in PostgreSQL, and fails otherwise.
-
-With compose, the old SQLite data is the `processor-data` volume, mounted read-only:
-
-```bash
-docker compose run --rm migrate-data
-# Read 4 events from SQLite: inserted 4, already present 0. All 4 are in PostgreSQL.
-```
-
-The script, `better-sqlite3` and the `processor-data` volume stay until the processor runs in the cluster and its data is verified; then they are removed.
+The first version kept its events in an embedded SQLite file. A reproducible script copied them into PostgreSQL (`ON CONFLICT DO NOTHING`, then a check that every id arrived), and it was removed once the processor ran in the cluster with its data verified. It is still in the git history (`src/scripts/migrate-sqlite-to-postgres.ts`).
 
 ## Branch model
 
