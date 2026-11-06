@@ -37,3 +37,16 @@ describe('ErrorCausesUtil.describe', () => {
     expect(ErrorCausesUtil.describe('closed')).toBe('closed');
   });
 });
+
+describe('ErrorCausesUtil.some', () => {
+  it('finds an error nested in causes and AggregateErrors', () => {
+    const tls = codedError('ERR_TLS_CERT_ALTNAME_INVALID', 'altnames');
+    const nested = new AggregateError([new Error('network', { cause: tls })], 'failed');
+
+    expect(ErrorCausesUtil.some(nested, (candidate) => candidate === tls)).toBe(true);
+  });
+
+  it('is false when nothing in the chain matches', () => {
+    expect(ErrorCausesUtil.some(new AggregateError([new Error('a')], 'b'), () => false)).toBe(false);
+  });
+});

@@ -15,6 +15,17 @@ export class ErrorCausesUtil {
     return causes.size > 0 ? `${top} <- ${[...causes].join(' | ')}` : top;
   }
 
+  /** Whether the error, or any error nested in it, matches the predicate. */
+  static some(error: unknown, predicate: (candidate: unknown) => boolean, depth = 0): boolean {
+    if (predicate(error)) {
+      return true;
+    }
+    if (depth >= ErrorCausesUtil.maxDepth) {
+      return false;
+    }
+    return ErrorCausesUtil.nestedErrorsOf(error).some((inner) => ErrorCausesUtil.some(inner, predicate, depth + 1));
+  }
+
   private static collectRootCauses(error: unknown, causes: Set<string>, depth: number): void {
     const nested = ErrorCausesUtil.nestedErrorsOf(error);
     if (nested.length === 0 || depth >= ErrorCausesUtil.maxDepth) {
