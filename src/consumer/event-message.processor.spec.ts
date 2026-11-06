@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { QueryFailedError } from 'typeorm';
 import { EventsRepository } from '../events/events.repository';
-import { EventMessageProcessor, retryDelayMs } from './event-message.processor';
+import { EventMessageProcessor } from './event-message.processor';
 import { ConsumedMessage } from './types/consumed-message.type';
 
 const event = {
@@ -157,11 +157,5 @@ describe('EventMessageProcessor', () => {
 
     expect(outcome).toBe('aborted');
     expect(calls).toEqual([]);
-  });
-});
-
-describe('retryDelayMs', () => {
-  it('doubles from one second up to thirty', () => {
-    expect([1, 2, 3, 4, 5, 6, 7].map(retryDelayMs)).toEqual([1000, 2000, 4000, 8000, 16_000, 30_000, 30_000]);
   });
 });

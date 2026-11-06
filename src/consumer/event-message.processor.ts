@@ -1,16 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { classifyDatabaseError, sqlStateOf } from '../database/database-error.util';
+import { DatabaseErrorUtil } from '../database/database-error.util';
 import { CreateEventDto, createEventSchema } from '../events/dto/create-event.dto';
 import { EventsRepository } from '../events/events.repository';
-import { EVENT_CONSUMER } from './constants/event-consumer.constant';
+import { EventConsumerUtil } from './event-consumer.util';
 import { ConsumedMessage } from './types/consumed-message.type';
 import { MessageOutcome } from './types/message-outcome.type';
-
-/** 1 s, 2 s, 4 s... up to 30 s between attempts at storing the same message. */
-export function retryDelayMs(attempt: number): number {
-  return Math.min(EVENT_CONSUMER.retryBaseDelayMs * 2 ** (attempt - 1), EVENT_CONSUMER.retryMaxDelayMs);
-}
 
 /**
  * Stores one event from Kafka and commits its offset only after it is stored (at-least-once:
@@ -41,8 +36,8 @@ export class EventMessageProcessor {
         await message.commit();
         return 'stored';
       } catch (error) {
-        const kind = classifyDatabaseError(error);
-        const sqlState = sqlStateOf(error);
+        const kind = DatabaseErrorUtil.classify(error);
+        const sqlState = DatabaseErrorUtil.sqlStateOf(error);
         if (kind === 'duplicate') {
           await message.commit();
           return 'stored';
@@ -51,7 +46,7 @@ export class EventMessageProcessor {
           // Sin el mensaje de PostgreSQL: puede repetir el dato rechazado ("invalid input syntax for type uuid: ...").
           return this.skip(message, 'the database rejected its data', sqlState);
         }
-        const delay = retryDelayMs(attempt);
+        const delay = EventConsumerUtil.retryDelay(attempt);
         this.logger.warn(
           `Could not store ${describe(message)} (attempt ${attempt}, SQLSTATE ${sqlState ?? 'none'}): ${messageOf(error)}. Retrying in ${delay} ms`,
         );
