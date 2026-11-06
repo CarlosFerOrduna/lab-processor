@@ -4,7 +4,9 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
-RUN npm run build && npm prune --omit=dev
+# The image keeps no optional dependencies: @platformatic/kafka then computes CRC32C in WASM
+# instead of the prebuilt native binary of @node-rs/crc32, so the image carries no native code.
+RUN npm run build && npm prune --omit=dev --omit=optional
 
 FROM node:26.13.0-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94
 ENV NODE_ENV=production
