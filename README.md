@@ -1,6 +1,6 @@
 # lab-processor
 
-The shared processor of the lab: a NestJS service that will consume the events published by both producers and own its database.
+The shared processor of the lab: a NestJS service that consumes the events published by both producers and owns its database.
 
 ## Role in the lab
 
@@ -13,6 +13,7 @@ Today:
 - `GET /health` returns `200 {"status":"ok"}` while the process is up, without touching the database: for a liveness probe.
 - `GET /health/ready` returns `200` only if the database answers `SELECT 1` within 1 s, and `503` otherwise: for a readiness probe.
 - An HTTP API for events (see [API](#api)): producers send events with `POST /events`, and anyone reads them with `GET /events`.
+- A Kafka consumer (see [Kafka consumer](#kafka-consumer)), `dist/consumer.js`, that stores the events of both producers' topics. It runs as its own process and Deployment, next to the API.
 - Its own PostgreSQL, separate from the process, accessed through TypeORM. The schema lives in versioned SQL migrations (`migrations/postgres/`), applied by a separate command before the service starts.
 - Environment configuration validated at startup with Joi.
 - Multi-stage `Dockerfile` that runs as the unprivileged `node` user, on a base image pinned by digest.
@@ -23,6 +24,7 @@ Today:
 | ------------------- | ------------------------------------------------------ |
 | `npm run lint`      | ESLint, without `--fix`, so violations fail the build. |
 | `npm run migrate`   | Applies the pending migrations (`dist/migrate.js`).    |
+| `npm run consume`   | Runs the Kafka consumer (`dist/consumer.js`).          |
 | `npm run build`     | Compiles to `dist/`.                                   |
 | `npm start`         | Runs `dist/main`.                                      |
 | `npm run start:dev` | Watch mode for local work.                             |
@@ -32,7 +34,7 @@ NestJS 12 ships as ES modules only, so `npm test` runs Jest with `--experimental
 
 Planned:
 
-- Consume the Kafka topics of both producers (`producer-a.*` and `producer-b.*`), replacing `POST /events`.
+- Retire `POST /events` once both producers publish to Kafka.
 - Serve the producers' requests through the platform gateway.
 - Own its database. Producers never write to it directly. The database evolves in three steps:
   1. Start with an embedded SQLite database inside the process, the pattern most services use today. (Done.)
@@ -41,7 +43,7 @@ Planned:
 
   The migration comes before the deployment because the SQLite file lives in a volume that only one pod can mount. While the service stays on SQLite, it cannot run two replicas or deploy without downtime.
 
-- Graceful shutdown: stop consuming, drain in-flight work, then exit.
+- A dead letter topic (`processor.dlq`) for the messages the consumer skips.
 
 ## Run locally
 
@@ -85,6 +87,36 @@ curl 'localhost:3000/events?source=producer-a&limit=5'
 
 An invalid body or query answers `400` with every validation error. Timestamps are UTC.
 
+## Kafka consumer
+
+`node dist/consumer.js` (in the cluster, the `processor-consumer` Deployment) consumes the producers' topics as the consumer group `processor`, with its own client certificate (mTLS). It serves only `GET /health`, for its liveness probe: it has no events API.
+
+### The message contract
+
+Every producer publishes the same event the API takes in `POST /events`:
+
+- **Value**: the whole event as JSON (`id`, `source`, `type`, `occurredAt`, `payload`), validated with the same schema as the API. Its `id` is what makes storing idempotent: the same `id` twice stores one row.
+- **Key**: the id of the aggregate the event is about: the item's id (`itemId`) in producer-b, the message's id in producer-a. Kafka sends every message with the same key to the same partition, so the events of one aggregate stay in order. The key is not the event's `id`.
+
+### Processing
+
+One message at a time, without autocommit: the offset is committed only after the event is stored, so a crash reads it again (at least once) and the idempotent insert absorbs the repeat. A group without committed offsets starts from the beginning of each partition.
+
+Only a message at fault is skipped: one that is not a valid event, or that the database rejects for its data. Any other error is retried without committing, because skipping it would lose a message that was fine: a database outage, a missing table or a bug in the consumer stop consuming instead.
+
+| What happens                                                                                                                                                                                  | The consumer                                                                                                                                                  |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The value is not JSON, or not a valid event                                                                                                                                                   | Logs it, commits it and goes on. The log line has the topic, partition, offset, key, reason, SQLSTATE and the value's length, never the value itself.         |
+| The database rejects it for its data: SQLSTATE class `22` (data exception) or `23` (integrity constraint) but `23505`                                                                         | Same as above. The log line has the SQLSTATE but not PostgreSQL's error message, which can repeat the rejected data.                                          |
+| A duplicate (`23505`)                                                                                                                                                                         | It is already stored: commits it.                                                                                                                             |
+| Any other error: the database unreachable, restarting or busy (network errors, class `08`, `57P01`, `40001`...), the schema wrong or missing (class `42`), an error without a SQLSTATE, a bug | Retries the same message, without committing, after 1 s, 2 s, 4 s... up to 30 s between attempts, logging each attempt with its SQLSTATE. Nothing is skipped. |
+| SIGTERM                                                                                                                                                                                       | Finishes or abandons (uncommitted) the message in progress, leaves the group and exits.                                                                       |
+| The Kafka client gives up                                                                                                                                                                     | Exits; Kubernetes restarts it, and the uncommitted message is read again.                                                                                     |
+
+A skipped message is lost but for its log line: a dead letter topic is planned. The liveness probe does not see a stuck consumer either (retrying a message never fails it); watching the group's lag is planned with the lab's observability.
+
+The image carries no optional dependencies (`npm prune --omit=optional`): `@platformatic/kafka` computes CRC32C in WASM instead of the prebuilt native binary of `@node-rs/crc32`, so the image has no native code. The consumer does not run in `compose.yaml`, which has no Kafka.
+
 ## Configuration
 
 The service reads only real environment variables. `.env` files are ignored by the service, so pass values in the shell or with `docker run -e`.
@@ -98,6 +130,18 @@ The service reads only real environment variables. `.env` files are ignored by t
 | `DATABASE_NAME`     | required     | Database name.                                            |
 | `DATABASE_USER`     | required     | Database user.                                            |
 | `DATABASE_PASSWORD` | required     | Database password. In the cluster it comes from a Secret. |
+
+The consumer also needs these (the API ignores them):
+
+| Variable                  | Default              | Validation                                                                 |
+| ------------------------- | -------------------- | -------------------------------------------------------------------------- |
+| `KAFKA_BOOTSTRAP_BROKERS` | required             | Comma-separated `host:port` list. A host name, never an IP: TLS checks it. |
+| `KAFKA_CLIENT_ID`         | `processor-consumer` | The client id the brokers log.                                             |
+| `KAFKA_GROUP_ID`          | `processor`          | The consumer group; its ACL lives in the `processor` KafkaUser.            |
+| `KAFKA_TOPICS`            | required             | Comma-separated topics.                                                    |
+| `KAFKA_CA_FILE`           | required             | The CA that verifies the brokers (the lab's root).                         |
+| `KAFKA_CERT_FILE`         | required             | The consumer's client certificate (`CN=processor`).                        |
+| `KAFKA_KEY_FILE`          | required             | Its private key.                                                           |
 
 `npm run migrate` needs only the `DATABASE_*` variables. An invalid value stops the service at startup with a validation error. The image carries no environment-specific values: the same image runs in dev, stage and prod, and each environment's values come from its overlay in [lab-gitops](https://github.com/CarlosFerOrduna/lab-gitops).
 
