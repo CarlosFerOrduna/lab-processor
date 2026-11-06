@@ -2,6 +2,7 @@ import { BeforeApplicationShutdown, Injectable, Logger, OnApplicationBootstrap }
 import { ConfigService } from '@nestjs/config';
 import { Consumer, MessagesStream, stringDeserializers } from '@platformatic/kafka';
 import { readFileSync } from 'node:fs';
+import { ErrorCausesUtil } from '../common/utils/error-causes.util';
 import { EVENT_CONSUMER } from './constants/event-consumer.constant';
 import { EventMessageProcessor } from './event-message.processor';
 
@@ -23,6 +24,17 @@ export class EventConsumerService implements OnApplicationBootstrap, BeforeAppli
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
+    try {
+      await this.startConsuming();
+    } catch (error) {
+      // Sin esta línea el motivo real (conexión rechazada, certificado que no coincide con el host) queda
+      // anidado en AggregateErrors más hondo de lo que Node imprime al morir el proceso.
+      this.logger.error(`Could not start consuming: ${ErrorCausesUtil.describe(error)}`);
+      throw error;
+    }
+  }
+
+  private async startConsuming(): Promise<void> {
     const topics = this.config.getOrThrow<string>('KAFKA_TOPICS').split(',');
     this.consumer = new Consumer({
       clientId: this.config.getOrThrow<string>('KAFKA_CLIENT_ID'),
@@ -72,7 +84,7 @@ export class EventConsumerService implements OnApplicationBootstrap, BeforeAppli
       }
       // El cliente se rindió (Kafka inalcanzable, un commit fallido...): salir y que Kubernetes reinicie
       // el pod no pierde nada, porque el mensaje sin confirmar se vuelve a leer.
-      this.logger.error(`Consuming stopped: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.error(`Consuming stopped: ${ErrorCausesUtil.describe(error)}`);
       process.exit(1);
     }
   }
