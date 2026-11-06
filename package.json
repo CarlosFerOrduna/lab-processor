@@ -11,6 +11,7 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "lint": "eslint",
     "migrate": "node dist/migrate.js",
+    "consume": "node dist/consumer.js",
     "start": "node dist/main",
     "start:dev": "nest start --watch",
     "test": "node --experimental-vm-modules --disable-warning=ExperimentalWarning node_modules/jest/bin/jest.js"
