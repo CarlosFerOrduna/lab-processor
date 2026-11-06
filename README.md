@@ -66,13 +66,13 @@ docker compose up --build
 
 ## API
 
-| Method and path     | What it does                                                                                                                                                |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /events`      | Receives an event from a producer and answers `202`. The producer sets the event `id`: sending the same `id` again stores nothing new, so retries are safe. |
-| `GET /events`       | The latest events first. Optional `source`, `limit` (1 to 100, default 20) and `offset`.                                                                    |
-| `GET /events/:id`   | One event, or `404`.                                                                                                                                        |
-| `GET /health`       | `200` while the process is up. Never checks the database, so a database outage does not restart the service.                                                |
-| `GET /health/ready` | `200` if the database answers within 1 s, `503` otherwise. A pod that is not ready gets no traffic but is not restarted.                                    |
+| Method and path     | What it does                                                                                                                                                                                                                                       |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /events`      | Receives an event from a producer and answers `202`. The producer sets the event `id`: sending the same `id` again stores nothing new, so retries are safe. Logs `Event <id> received over HTTP from <source>` for every event, never the payload. |
+| `GET /events`       | The latest events first. Optional `source`, `limit` (1 to 100, default 20) and `offset`.                                                                                                                                                           |
+| `GET /events/:id`   | One event, or `404`.                                                                                                                                                                                                                               |
+| `GET /health`       | `200` while the process is up. Never checks the database, so a database outage does not restart the service.                                                                                                                                       |
+| `GET /health/ready` | `200` if the database answers within 1 s, `503` otherwise. A pod that is not ready gets no traffic but is not restarted.                                                                                                                           |
 
 ```bash
 curl -X POST localhost:3000/events -H 'content-type: application/json' -d '{
